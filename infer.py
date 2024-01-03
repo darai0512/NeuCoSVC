@@ -18,7 +18,7 @@ SPEAKER_INFORMATION_LAYER = 6
 CONTENT_INFORMATION_LAYER = [20, 21, 22, 23, 24]
 
 
-def VoiceConverter(test_utt: str, ref_utt: str, out_path: str, svc_mdl: SVCNN, wavlm_encoder: WavLMEncoder, f0_factor: float, speech_enroll=False, device=torch.device('cpu')):
+def VoiceConverter(test_utt: str, ref_utt: str, out_path: str, svc_mdl: SVCNN, wavlm_encoder: WavLMEncoder, f0_factor: float, speech_enroll=False, device=torch.device('cpu'), use_reaper=True):
     """
     Perform singing voice conversion and save the resulting waveform to `out_path`.
 
@@ -31,6 +31,7 @@ def VoiceConverter(test_utt: str, ref_utt: str, out_path: str, svc_mdl: SVCNN, w
         f0_factor (float): F0 shift factor.
         speech_enroll (bool, optional): Whether the reference audio is a speech clip or a singing clip. Defaults to False.
         device (torch.device, optional): Device to perform the conversion on. Defaults to cpu.
+        use_reaper (bool, optional): Whether using pitch extraction of REAPER or not. Defaults to True.
 
     """
     # Preprocess audio and extract features.
@@ -38,7 +39,7 @@ def VoiceConverter(test_utt: str, ref_utt: str, out_path: str, svc_mdl: SVCNN, w
     applied_weights = F.one_hot(torch.tensor(CONTENT_INFORMATION_LAYER), num_classes=25).float().mean(axis=0).to(device)[:, None]
 
     ld = extract_loudness(test_utt)
-    pitch, f0_factor = extract_pitch(test_utt, ref_utt, predefined_factor=f0_factor, speech_enroll=speech_enroll)
+    pitch, f0_factor = extract_pitch(test_utt, ref_utt, predefined_factor=f0_factor, speech_enroll=speech_enroll, use_reaper=use_reaper)
     assert pitch.shape[0] == ld.shape[0], f'{test_utt} Length Mismatch: pitch length ({pitch.shape[0]}), ld length ({ld.shape[0]}).'
 
     query_feats = wavlm_encoder.get_features(test_utt, weights=applied_weights)
@@ -114,6 +115,10 @@ if __name__ == '__main__':
             when performing pitch shift to cover the pitch gap between singing and speech. \
             Note: This option is invalid when f0_factor is specified.'
     )
+    parser.add_argument(
+        '--no_reaper', action='store_true',
+        help='When not using REAPER for pitch extraction, set this.'
+    )
 
     args = parser.parse_args()
 
@@ -121,6 +126,7 @@ if __name__ == '__main__':
 
     f0factor = args.f0_factor
     speech_enroll_flag = args.speech_enroll
+    reaper_flag = not args.no_reaper_flag
 
     if torch.cuda.is_available():
         device = torch.device('cuda')
@@ -152,7 +158,7 @@ if __name__ == '__main__':
 
     VoiceConverter(test_utt=args.src_wav_path, ref_utt=args.ref_wav_path, out_path=args.out_path,
                    svc_mdl=svc_mdl, wavlm_encoder=wavlm_encoder,
-                   f0_factor=f0factor, speech_enroll=speech_enroll_flag, device=device)
+                   f0_factor=f0factor, speech_enroll=speech_enroll_flag, device=device, use_reaper=reaper_flag)
 
     t2 = time.time()
     print(f'converting costs {t2-t1:.2f}s.')
